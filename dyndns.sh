@@ -1,7 +1,6 @@
 #!/bin/sh
 
 api_host="https://api.digitalocean.com/v2"
-sleep_interval=${SLEEP_INTERVAL:-300}
 
 die() {
     echo "$1"
@@ -14,37 +13,35 @@ test -z $NAME && die "NAME not set!"
 
 dns_list="$api_host/domains/$DOMAIN/records"
 
-while ( true ); do
-    domain_records=$(curl -s -X GET \
-        -H "Content-Type: application/json" \
-        -H "Authorization: Bearer $DIGITALOCEAN_TOKEN" \
-        $dns_list"?per_page=200")
+domain_records=$(curl -s -X GET \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $DIGITALOCEAN_TOKEN" \
+    $dns_list"?per_page=200")
 
-    ip="$(curl -s ipinfo.io/ip)"
+ip="$(curl -s ipinfo.io/ip)"
 
-    if [[ -n $ip ]]; then
-        for sub in ${NAME//;/ }; do
-            record_id=$(echo $domain_records| jq ".domain_records[] | select(.type == \"A\" and .name == \"$sub\") | .id")
-            record_data=$(echo $domain_records| jq -r ".domain_records[] | select(.type == \"A\" and .name == \"$sub\") | .data")
-            
-            test -z $record_id && echo "No record found with '$sub' domain name!" && continue
+if [[ -n $ip ]]; then
+    for sub in ${NAME//;/ }; do
+        record_id=$(echo $domain_records| jq ".domain_records[] | select(.type == \"A\" and .name == \"$sub\") | .id")
+        record_data=$(echo $domain_records| jq -r ".domain_records[] | select(.type == \"A\" and .name == \"$sub\") | .data")
 
-            if [[ "$ip" != "$record_data" ]]; then
-                data="{\"type\": \"A\", \"name\": \"$sub\", \"data\": \"$ip\"}"
-                url="$dns_list/$record_id"
+        test -z $record_id && echo "No record found with '$sub' domain name!" && continue
 
-                echo "existing DNS record address ($record_data) doesn't match current IP ($ip), sending data=$data to url=$url"
+        if [[ "$ip" != "$record_data" ]]; then
+            data="{\"type\": \"A\", \"name\": \"$sub\", \"data\": \"$ip\"}"
+            url="$dns_list/$record_id"
 
-                curl -s -X PUT \
-                    -H "Content-Type: application/json" \
-                    -H "Authorization: Bearer $DIGITALOCEAN_TOKEN" \
-                    -d "$data" \
-                    "$url" &> /dev/null
-            fi
-        done
-    else
-        echo "IP wasn't retrieved within allowed interval. Will try $sleep_interval seconds later.."
-    fi
+            echo "existing DNS record address ($record_data) doesn't match current IP ($ip), sending data=$data to url=$url"
 
-    sleep $sleep_interval
-done
+            curl -s -X PUT \
+                -H "Content-Type: application/json" \
+                -H "Authorization: Bearer $DIGITALOCEAN_TOKEN" \
+                -d "$data" \
+                "$url"
+
+            echo "Completed API call to Digital Ocean"
+        fi
+    done
+else
+    die "IP couldn't be retrieved"
+fi
